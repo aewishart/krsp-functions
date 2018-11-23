@@ -19,6 +19,7 @@
 library (tidyverse)
 library (krsp)
 library (pedantics)
+select = dplyr::select # necessary as MASS also has a select function
 
 # Connecting to the cloud database
 con = krsp_connect(group = "krsp-aws")
