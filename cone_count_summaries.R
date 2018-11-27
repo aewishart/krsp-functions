@@ -36,10 +36,10 @@ cones_grids_years <- group_by(cone_counts, Year, Grid) %>%
 
 #link in cones from the previous year
 cone_temp<-cones_grids_years %>% 
-  select(Grid, Year_tp1, cone_index_tm1=cone_index_t)
+  select(Grid, Year, Year_tp1, cone_index_tm1=cone_index_t)
 
 cones_grids_years<-left_join(cones_grids_years, cone_temp, by=c("Grid", "Year" = "Year_tp1")) %>% 
-  select(-Year_tp1)
+  select(-Year_tp1, -Year.y)
 
 # Manually code mast years
 
