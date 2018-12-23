@@ -33,7 +33,22 @@ krsp_pedigree<-tbl(con, "flastall2") %>%
   filter(row_number() == 1) %>% 
   ungroup()
 
-krsp_pedigree = fixPedigree(krsp_pedigree)
+###  Incorporate Cross-Fostering Data
+library(RCurl)
+script <- getURL("https://raw.githubusercontent.com/KluaneRedSquirrelProject/krsp-functions/master/crossfoster.R", ssl.verifypeer = FALSE)
+eval(parse(text = script))
+# Brings in cross_foster table
+
+krsp_pedigree %>% 
+  mutate(id = as.numeric(id)) %>% 
+  left_join(cross_foster, by=c("id" = "pup_squirrel_id")) %>% 
+  filter(dam != dam_origin_squirrel_id)
+# Need to sleuth 5 errors where krsp_pedigree and cross_foster
+
+# krsp_pedigree = fixPedigree(krsp_pedigree)
+# This is causing some problems because it is redefining the dam ids to be lower than the
+# id.  Does this need to be done?  Causes problems later because dam is no longer a 'squirrel_id'
+
 
 #Summaries:
 
