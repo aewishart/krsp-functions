@@ -13,8 +13,7 @@ cross_foster<-read_csv("cross_fostering.csv")
 
 cross_foster<-cross_foster %>% 
   filter(!is.na(pup_alpha_taglft)) %>% 
-  mutate(pup_alpha_taglft=ifelse(pup_alpha_taglft=="D1559", "D1560", pup_alpha_taglft)) %>% 
-  distinct()
+  mutate(pup_alpha_taglft=ifelse(pup_alpha_taglft=="D1559", "D1560", pup_alpha_taglft)) 
 # Looks like these tags got reversed in the pup in my cross-foster data
 # D1559/D1560 should be D1560/D1559
 
@@ -41,8 +40,8 @@ cross_foster<-cross_foster %>%
 # There were a few tag combinations that were not in the squirrel alias table because of changed taglft
 # A9679/C4770
 # A6998/A6999
-  select (pup_squirrel_id, dam_origin_squirrel_id, dam_rearing_squirrel_id)
+  select (pup_squirrel_id, dam_origin_squirrel_id, dam_rearing_squirrel_id) %>% 
+  distinct()
 
 rm(alias)
-summary (cross_foster)
 
