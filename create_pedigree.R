@@ -39,15 +39,19 @@ script <- getURL("https://raw.githubusercontent.com/KluaneRedSquirrelProject/krs
 eval(parse(text = script))
 # Brings in cross_foster table
 
-krsp_pedigree %>% 
-  mutate(id = as.numeric(id)) %>% 
-  left_join(cross_foster, by=c("id" = "pup_squirrel_id")) %>% 
-  filter(dam != dam_origin_squirrel_id)
-# Need to sleuth 5 errors where krsp_pedigree and cross_foster
+
+#  There were 4 errors discovered in January 2019 when McAdam wrote this code to bring in the cross-foster data.  These will be fixed manually here, 
+#  but will be corrected within the juvenile table once the annual data cleanup is done for the 2019 season.  These juveniles did not survive the summer
+#  so these errors in dam assignment have not had large issues for previous pedigree analyses
+krsp_pedigree <- krsp_pedigree %>% 
+  mutate (dam = ifelse(id==4367, 4608, dam),
+          dam = ifelse(id==3934, 4682, dam),
+          dam = ifelse(id==4249, 4425, dam),
+          dam = ifelse(id==4034, 4125, dam))
 
 # krsp_pedigree = fixPedigree(krsp_pedigree)
-# This is causing some problems because it is redefining the dam ids to be lower than the
-# id.  Does this need to be done?  Causes problems later because dam is no longer a 'squirrel_id'
+# NOTE that running fixPedigree will redefine the dam ids to be lower than the
+# id.  This could cause problems later because dam is no longer a 'squirrel_id'
 
 
 #Summaries:
