@@ -13,9 +13,6 @@
 # library (devtools)
 # devtools::install_github("KluaneRedSquirrelProject/krsp")
 
-
-
-
 library (tidyverse)
 library (krsp)
 library (pedantics)
@@ -32,13 +29,6 @@ krsp_pedigree<-tbl(con, "flastall2") %>%
   collect() %>% 
   filter(row_number() == 1) %>% 
   ungroup()
-
-###  Incorporate Cross-Fostering Data
-library(RCurl)
-script <- getURL("https://raw.githubusercontent.com/KluaneRedSquirrelProject/krsp-functions/master/crossfoster.R", ssl.verifypeer = FALSE)
-eval(parse(text = script))
-# Brings in cross_foster table
-
 
 #  There were 4 errors discovered in January 2019 when McAdam wrote this code to bring in the cross-foster data.  These will be fixed manually here, 
 #  but will be corrected within the juvenile table once the annual data cleanup is done for the 2019 season.  These juveniles did not survive the summer
