@@ -13,9 +13,14 @@ cross_foster<-read_csv("cross_fostering.csv")
 
 cross_foster<-cross_foster %>% 
   filter(!is.na(pup_alpha_taglft)) %>% 
-  mutate(pup_alpha_taglft=ifelse(pup_alpha_taglft=="D1559", "D1560", pup_alpha_taglft)) 
+  mutate(pup_alpha_taglft=ifelse(pup_alpha_taglft=="D1559", "D1560", pup_alpha_taglft),
+         pup_tagleft=ifelse(pup_alpha_taglft=="D1560", 41560, pup_tagleft)) %>% 
 # Looks like these tags got reversed in the pup in my cross-foster data
 # D1559/D1560 should be D1560/D1559
+  mutate(pup_alpha_taglft=ifelse(pup_alpha_taglft=="D1951"&dam_origin_alpha_taglft=="B2439", "D1955", pup_alpha_taglft),
+         pup_tagleft=ifelse(pup_alpha_taglft=="D1955", 41955, pup_tagleft)) 
+# There was a data entry error in cross-foster where an incorrect tagleft and alpha tag left were enetered for this squirrel.
+# This resulted in two entries for the same juvenile (D1951/D1952) and no entries for the other juvenile (D1955/D1956)
 
 
   
