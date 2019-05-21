@@ -181,7 +181,7 @@ results <- results %>%
 results <- results %>% 
   mutate(survived_200d = ifelse(grid == "LL" & year == 2012, NA, survived_200d),
          survived_200d = ifelse(grid == "CH" & year == 2011, NA, survived_200d),
-         survived_200d = ifelse(year == 2017, NA, survived_200d))
+         survived_200d = ifelse(year == max(year), NA, survived_200d))
 
 # output
 # convert T/F to 1/0
