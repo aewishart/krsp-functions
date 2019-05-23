@@ -507,7 +507,7 @@ rm(afr, bad_litter_records, good_litter_records, good_litters, manipulated_litte
 
 # Lifetime Clean
 lifetime_clean<-lifetime %>%
-  filter (byear<2010, num_missed_litters<1, 
+  filter (byear<2012, num_missed_litters<1, 
           is.na(alr)|is.na(afr)|num_good_litters - (alr-afr) >0)
 
 # Clean Up
