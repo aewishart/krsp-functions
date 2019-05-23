@@ -30,6 +30,8 @@ krsp_pedigree<-tbl(con, "flastall2") %>%
   filter(row_number() == 1) %>% 
   ungroup()
 
+
+
 #  There were 4 errors discovered in January 2019 when McAdam wrote this code to bring in the cross-foster data.  These will be fixed manually here, 
 #  but will be corrected within the juvenile table once the annual data cleanup is done for the 2019 season.  These juveniles did not survive the summer
 #  so these errors in dam assignment have not had large issues for previous pedigree analyses
@@ -39,9 +41,9 @@ krsp_pedigree <- krsp_pedigree %>%
           dam = ifelse(id==4249, 4425, dam),
           dam = ifelse(id==4034, 4125, dam))
 
-# krsp_pedigree = fixPedigree(krsp_pedigree)
-# NOTE that running fixPedigree will redefine the dam ids to be lower than the
-# id.  This could cause problems later because dam is no longer a 'squirrel_id'
+ krsp_pedigree = fixPedigree(krsp_pedigree)
+# NOTE that fixPedigree does not change the id's it just changes the order of the records
+# so that maternal records occur before the first records of their offspring.
 
 
 #Summaries:
