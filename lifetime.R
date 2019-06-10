@@ -225,7 +225,8 @@ litter <- tbl(con, "litter") %>%
          !(grid == "LL" & yr >= 1997 & yr <= 2003),
          !(grid == "LL" & yr >= 2012),
          !(grid == "JO" & yr >= 2012),
-         !(grid == "CH" & yr >= 2012)) %>% 
+         !(grid == "CH" & yr >= 2012),
+         !(grid == "AG" & yr >= 2018)) %>% 
   select(litter_id = id,
          year = yr, field_bdate = fieldBDate, n1_date = date1, tag_date = tagDt,squirrel_id, grid, locx, locy, ln, food)
 
