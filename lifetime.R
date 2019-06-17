@@ -506,6 +506,20 @@ lifetime<-lifetime %>%
   mutate (bucket2 = as.numeric(bucket2)) %>% 
   mutate(num_missed_litters = ifelse(is.na(num_missed_litters), 0, num_missed_litters))
 
+  # Food add as adult.  Codes bucket.as.adult based on whether the squirrel owned a bucket as an adult.
+  food_add_temp<-food_add %>% 
+  select(squirrel_id, bucket.as.adult=bucket)
+  
+  lifetime<-lifetime %>% 
+  left_join(food_add_temp, by = c("squirrel_id")) %>% 
+  distinct(squirrel_id, .keep_all = TRUE) %>% 
+  # fill NAs with "0"
+  mutate(bucket.as.adult = coalesce(bucket.as.adult, "0")) %>% 
+  mutate(bucket.as.adult = if_else(bucket.as.adult=="Y", "1", bucket.as.adult)) %>% 
+  mutate (bucket.as.adult = as.numeric(bucket.as.adult))
+  
+rm(food_add_temp)  
+
 rm(afr, bad_litter_records, good_litter_records, good_litters, manipulated_litter_records, manipulation_codes, missed_litters) 
 
 # Lifetime Clean
