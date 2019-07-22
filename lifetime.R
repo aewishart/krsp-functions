@@ -18,7 +18,13 @@ select = dplyr::select #necessary as MASS also has a select function
 # Connection to the AWS database
 ## Note that an additional connection might be needed if you also want to access the most recent year's data that havent been
 ## incorporated into the longterm data yet.
-con <- krsp_connect(group="krsp-aws") #Amazon instance - preferred
+#con <- krsp_connect(group="krsp-aws") #Amazon instance - preferred
+con <- krsp_connect (host = "krsp.cepb5cjvqban.us-east-2.rds.amazonaws.com",
+                     dbname ="krsp",
+                     username = rstudioapi::showPrompt(title = "Username", message = "Username", default = ""),
+                     password = rstudioapi::askForPassword("Password")
+)
+
 
 # Summarize cones data
 library(RCurl)
