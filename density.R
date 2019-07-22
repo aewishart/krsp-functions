@@ -6,7 +6,13 @@ library(tidyverse)
 library(krsp)
 library (lubridate)
 
-connection_1<-krsp_connect(group="krsp-aws") #Amazon instance - preferred
+#connection_1<-krsp_connect(group="krsp-aws") #Amazon instance - preferred
+connection_1 <- krsp_connect (host = "krsp.cepb5cjvqban.us-east-2.rds.amazonaws.com",
+                     dbname ="krsp",
+                     username = rstudioapi::showPrompt(title = "Username", message = "Username", default = ""),
+                     password = rstudioapi::askForPassword("Password")
+)
+
 
 #Importing midden census data
 census_1<-tbl(connection_1, "dbamidden") %>% 

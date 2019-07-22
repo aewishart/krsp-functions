@@ -5,7 +5,13 @@
 library(tidyverse)
 library (krsp)
 
-con <- krsp_connect(group="krsp-aws")
+#con <- krsp_connect(group="krsp-aws")
+con <- krsp_connect (host = "krsp.cepb5cjvqban.us-east-2.rds.amazonaws.com",
+                     dbname ="krsp",
+                     username = rstudioapi::showPrompt(title = "Username", message = "Username", default = ""),
+                     password = rstudioapi::askForPassword("Password")
+)
+
 
 selected_grids <- c("AG", "CH", "JO", "KL", "LL", "SU")
 
