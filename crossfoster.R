@@ -1,7 +1,12 @@
 library (krsp)
 library (tidyverse)
 
-con <- krsp_connect(group="krsp-aws") 
+con <- krsp_connect (host = "krsp.cepb5cjvqban.us-east-2.rds.amazonaws.com",
+                     dbname ="krsp",
+                     username = Sys.getenv("krsp_user"),
+                     password = Sys.getenv("krsp_password")
+)
+
 
 alias<-tbl(con, 'squirrel_alias') %>% 
   select(squirrel_id, taglft) %>% 
