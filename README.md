@@ -3,4 +3,4 @@ There are many common tasks that we do using the database.  McAdam has written s
 
 Note: Users must have access to the krsp cloud database in order to run this R code, since authentication is required.  If you do not have access and would like access to the database please contact Andrew McAdam at the University of Guelph.
 
-These functions depend on the user having krsp_user and krsp_password already defined in their system settings.  See [here] (https://github.com/KluaneRedSquirrelProject/Using-the-KRSP-Cloud-Database/blob/master/Connecting%20to%20KRSP.md) for instructions on how to assign these credentials.
+These functions depend on the user having krsp_user and krsp_password already defined in their system settings.  See [here](https://github.com/KluaneRedSquirrelProject/Using-the-KRSP-Cloud-Database/blob/master/Connecting%20to%20KRSP.md) for instructions on how to assign these credentials.
