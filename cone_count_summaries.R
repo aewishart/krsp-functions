@@ -71,7 +71,13 @@ cones_grids_years<-cones_grids_years %>%
           mast = ifelse(Grid=="SU"&Year==2014, "y", mast),
           mast = ifelse(Grid=="CH"&Year==2014, "y", mast),
           mast = ifelse(Grid=="JO"&Year==2014, "y", mast),
-          mast = ifelse(Grid=="AG"&Year==2014, "y", mast)) %>% 
+          mast = ifelse(Grid=="AG"&Year==2014, "y", mast),
+          mast = ifelse(Grid=="KL"&Year==2019, "y", mast),
+          mast = ifelse(Grid=="LL"&Year==2019, "y", mast),
+          mast = ifelse(Grid=="SU"&Year==2019, "y", mast),
+          mast = ifelse(Grid=="CH"&Year==2019, "y", mast),
+          mast = ifelse(Grid=="JO"&Year==2019, "y", mast),
+          mast = ifelse(Grid=="AG"&Year==2019, "y", mast)) %>% 
   mutate (Exp = "c") %>% 
   mutate (Exp = ifelse(Grid=="AG"&Year>2004&Year<2018, "f", Exp),
           Exp = ifelse(Grid=="JO"&Year>2006&Year<2013, "f", Exp),
@@ -104,7 +110,7 @@ yearly_cone_temp<-yearly_cones %>%
 
 yearly_cones<-left_join(yearly_cones, yearly_cone_temp, by=c("Year" = "Year_tp1")) %>% 
   select(Year, num_trees, cone_counts, cone_index_t, cone_index_tm1, total_cones) %>% 
-  mutate(mast=ifelse(Year %in% c(1993, 1998, 2005, 2010, 2014), "y", "n"))
+  mutate(mast=ifelse(Year %in% c(1993, 1998, 2005, 2010, 2014, 2019), "y", "n"))
 
 
 ############################################
@@ -132,7 +138,7 @@ yearly_klsu_cone_temp<-yearly_cones_klsu %>%
 
 yearly_cones_klsu<-left_join(yearly_cones_klsu, yearly_klsu_cone_temp, by=c("Year" = "Year_tp1")) %>% 
   select(Year, num_trees, cone_counts, cone_index_t, cone_index_tm1, total_cones)%>% 
-  mutate(mast=ifelse(Year %in% c(1993, 1998, 2005, 2010, 2014), "y", "n"))
+  mutate(mast=ifelse(Year %in% c(1993, 1998, 2005, 2010, 2014, 2019), "y", "n"))
 
 
 
