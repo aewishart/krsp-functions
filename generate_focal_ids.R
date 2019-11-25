@@ -51,8 +51,8 @@ focals$focal_id <- focals %>%
 focals <- focals %>% 
   select(-dd, -focal_num)
 
-write.csv(focals, "../output/Matt's_long_term_focals.csv") #csv file with ALL focal observations
-# Note the above requires teh presence of an 'output' folder in the current working folder
+write.csv(focals, "Matt's_long_term_focals.csv") #csv file with ALL focal observations
+
 
 
 #M.Strimas-Mackey's code ends here 
@@ -60,7 +60,7 @@ write.csv(focals, "../output/Matt's_long_term_focals.csv") #csv file with ALL fo
 
 #This code can be modified and applied to any portion of the data as long as you know how focals were collected in a given year
 
-focals <- read.csv("../output/Matt's_long_term_focals.csv")
+focals <- read.csv("Matt's_long_term_focals.csv")
 row.per.focal <- focals %>% group_by(focal_id) %>% summarise(n = n()) 
 ggplot(row.per.focal) + geom_histogram(aes(x=n), binwidth =1) + xlab("Number of observations/focal")
 
