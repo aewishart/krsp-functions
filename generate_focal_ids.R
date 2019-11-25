@@ -11,7 +11,13 @@ library(lubridate)
 library(krsp)
 
 # Import Data
-con <- krsp_connect(group="krsp-aws")
+# con <- krsp_connect(group="krsp-aws")  # This connection no longer works
+con <- krsp_connect (host = "krsp.cepb5cjvqban.us-east-2.rds.amazonaws.com",
+                    dbname ="krsp",
+                    username = Sys.getenv("krsp_user"),
+                    password = Sys.getenv("krsp_password")
+) #This is the new preferred connection style
+
 behav <- tbl(con, "behaviour") %>% 
   # remove squirrels with no id
   filter(!is.na(squirrel_id)) %>% 
@@ -46,6 +52,8 @@ focals <- focals %>%
   select(-dd, -focal_num)
 
 write.csv(focals, "../output/Matt's_long_term_focals.csv") #csv file with ALL focal observations
+# Note the above requires teh presence of an 'output' folder in the current working folder
+
 
 #M.Strimas-Mackey's code ends here 
 #Below is E.Siracusa's example of how to pull out "accurate" 7 minute focals collected before 2008. This is b/c when couting number of observations per focal there are still some focals with too many observations per focal e.g. >30 and some with too few e.g. < 10. 
