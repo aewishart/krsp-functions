@@ -16,6 +16,7 @@
 library (tidyverse)
 library (krsp)
 #library (pedantics)
+library (kinship2)
 select = dplyr::select # necessary as MASS also has a select function
 
 # Connecting to the cloud database
@@ -93,6 +94,7 @@ fixPedigree <-
     for(x in 1:3) fixedPedigree[,x]<-as.factor(fixedPedigree[,x])
     fixedPedigree
   }
+
 
 
 
