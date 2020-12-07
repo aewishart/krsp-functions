@@ -1,0 +1,985 @@
+---
+title: "MiddenMasterList"
+author: "AEW"
+date: '2020-04-07'
+output: html_document
+---
+#The purpose of this code is to "clean up" midden reflos across the CENSUS table in the long-term database. The purpose of this code is to generate a list of all reflos on KL and SU such that each exact loc is associated with exactly one reflo, and that each reflo is associated with exactly one exact location. This to allow for across-years spatial analyses in which slight real shifts of reflos are not expected to have a major effect (e.g., a midden moves from F.2 3.4 to F.3 3.2). All patches have been corroborated with squirrel census data, trapping data, and other tables when necessary to confirm.
+
+This was completed with all long-term data up to and including the 2019 field season. It is not guaranteed to be applicable to anything 2020 or beyond. It is not intended to be blindly used for all projects - if there is interest in the more nuanced shifts in a midden location over time, THIS WILL NOT SERVE YOU WELL. This code was designed expressly with AEW's thesis chapter on spatial considerations of life history traits over time in mind.
+
+There is a new compound variable introduced here to make the simultaneous use of KL and SU data easier: "greflo". This is simply a concatenation of "grid" and "reflo". This ensures that middens of the same name on different grids are never mixed up. 
+
+- For middens whose reflos have changed over time (which could be real, when a physical midden has shifted enough to warrant a new reflo assignment), this code will select the most-used reflo in the database. 
+- For census entries missing reflos and/or exact locs, this code will fill in the missing information. 
+- Census field protocol dictates that exact locs should be captured from the most recent census. There are cases in which the observer has not done this; either because the midden was absent in the census files available in the field (e.g., midden was unoccupied for a year or two), or because the observer used the rounded loc as opposed to exact loc (e.g., used B.0 2.5 instead of B.1 2.4), or has otherwise inputed an error. Due to the field protocol, if this is not caught, the error can be perpetuated in future censuses. In these cases, when obvious cases (particularly when rounded locations versus exact locs are used), I have tried to give precedence to the older exact loc. This was assisted by the observation that some observers/seasons were more prone to making this error than others. 
+- In addition to reflos being associated with multiple exact locs over the years (due to real shifts or due to inputation errors), there are exact locs who have been attributed to multiple reflos. This code sorts through and selects data, again on a majority rules heuristic with manual inspection, 
+- There are manually-coded changes to reflos/exact locs deemed to be inputation errors (e.g., a reflo with a non-origin name but with exact loc = 0.0, 0.0). The way that these are solved are articulated in each case below.
+
+
+The final prodcut is what is entitled a Midden Master List, which can then be imported to whatever analyses you are interested in.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#Libraries
+```{r}
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(RMySQL)
+library(knitr)
+library(ggplot2)
+library(lubridate)
+library(krsp)
+
+```
+
+# Import Data into R from the cloud instance of the `krsp` database
+```{r send-query, collapse=TRUE}
+#Connect to database - replace with your username below
+connection_1 <- krsp::krsp_connect(host = "krsp.cepb5cjvqban.us-east-2.rds.amazonaws.com",
+													dbname ="krsp",
+													username = Sys.getenv("krsp_user"),
+                            password = Sys.getenv("krsp_password")
+													)
+
+
+#Importing midden census data
+census_1<-tbl(connection_1, "dbamidden") %>%
+  dplyr::select(id, reflo, squirrel_id, locX, locY, grid, date, fate, def, Sex)%>%
+  collect%>%
+  filter(!fate %in% c( 2, 4, 8, 9, 10)) %>%
+  filter(!def %in% c(1)) %>%
+ filter(squirrel_id != is.na(squirrel_id))%>%
+  #filter(def != is.na(def)) %>%
+  collect %>%
+  mutate(locx = loc_to_numeric(locX), locy=locY, dbaMidden.id = id)
+
+
+  #Midden Fates: 
+#0 = no change in ownership
+#1 = change in ownership
+#2 = not censused
+#3 = more than 1 owner
+#4 = no owner - based on rattle (not on a territory)
+#5 = new midden within normal census area
+#6 = midden censused for the first time
+#7 = change in ownership due to unnatural death
+#8 = insufficient information to determine ownership (new in May 1995)
+#9 = no longer a midden
+#10 = midden destroyed by road clearing in 2000
+
+
+
+#DEF  strength of defence
+#1 = squirrels found occasionally at midden, few to no calls
+#2 = squirrels found occasionally at midden, sometimes calling
+#3 = squirrel found at midden, often defends it, but is the animal's secondary midden 
+#4 = squirrel's primary midden
+#5 = squirrel trapped 3-4 times, never calls (new in May 1995)
+
+
+#Importing squirrel census data
+census_2 <- tbl(connection_1, "census") %>%
+  dplyr::select(id, reflo, squirrel_id, locx, locy, gr, census_date, sq_fate, sex) %>%
+ # filter(sq_fate %in% c(1,3,4,6,10,15,16,18)) %>%
+  # collect %>%
+ filter(squirrel_id !=is.na(squirrel_id))%>%
+  collect %>%
+  mutate(locx = loc_to_numeric(locx))
+
+
+
+census_1 <- mutate(census_1, sq_fate = fate) %>%
+  collect %>%
+   mutate(locX = loc_to_numeric(locX))
+
+
+census_2 <- census_2 %>%
+          transmute(reflo = reflo, squirrel_id = squirrel_id, 
+          locX = locx, 
+          locY = locy,
+          grid = gr,
+          date = census_date,
+          fate = sq_fate, 
+          Sex = sex, 
+          census_id = id) %>%
+  collect %>%
+  mutate(locX = loc_to_numeric(locX))
+
+census_all<-bind_rows(census_1, census_2)%>% 
+ mutate(grid = factor(grid),
+        year = year(ymd(date)),
+        month = month(ymd(date)),
+        locY=as.numeric(locY),
+        Sex=factor(Sex), 
+        sq_fate=factor(sq_fate), 
+        census_id = factor(census_id), 
+        dbaMidden.id = factor(dbaMidden.id)) #we keep separate columns for census id and dbaMidden id because there are some repeats of numbers between the two which will cause problems further down this pipeline if collapsed into a single column. 
+
+census_all$locx <- NULL
+census_all$locy <- NULL
+census_all$sq_fate<- NULL
+
+years <- c("1987", "1988", "1989", "1990", "1991", "1992", "1993", "1994", "1995", "1996", "1997", "1998", "1999", "2000", "2001", "2002", "2003", "2004", "2005", "2006", "2007", "2008", "2009", "2010", "2011", "2012", "2013", "2014", "2015", "2016", "2017", "2018", "2019")
+
+selected_grids <- c("KL", "SU")
+census_all <- filter(census_all, grid %in% selected_grids) %>% 
+  mutate(grid=factor(grid, levels = c("KL", "SU")))
+
+census_all$greflo <- paste(census_all$grid, census_all$reflo)
+census_all$squirrel_id <- as.factor(census_all$squirrel_id)
+
+
+census_all <- as.data.frame(census_all)
+census_all$year <- as.factor(census_all$year)
+
+census <-  census_all %>% mutate(date = ymd(date),
+			 year = year(date),
+			 month = month(date),
+			 locX = as.numeric(locX),
+			 locY = as.numeric(locY),
+			 yfact = as.factor(year))
+
+census <- census %>%
+  mutate(locXstr = as.character(locX), 
+         locYstr = as.character(locY))
+nrow(census)
+
+census <- census %>%
+  tidyr::unite(exactloc, locXstr, locYstr, sep = ",", remove = FALSE)
+nrow(census)
+
+census$grexactloc <- paste(census$grid, census$exactloc)
+
+#this brings in 17080 entries. 
+
+#Spring census only
+spr_census <- census%>%
+  filter(month == 5)
+nrow(spr_census)
+#this brings in 7414 entries. 
+
+#Summary of entries in spr_census
+
+# Number of unique greflos
+n_distinct(spr_census$greflo)
+#766
+
+# Number of unique exactlocs
+n_distinct(spr_census$exactloc)
+#1224
+
+#So we have 766 reflos with 1224 exact locs. We want to get down to a list where each midden is represented in the list by one greflo and one exact loc. Onward!
+```
+
+
+#Fill in missing reflos 
+```{r}
+#Look first to records with empty reflo to see if we can assign a reflo based on exact loc
+census_refloempty <- spr_census %>%
+  filter(reflo == "")
+
+#We only have one entry in spring census that is missing a reflo entirely: census_id = 9875 exact loc (1, 5.5) translates to A5. as we can see by searching the dataframe for other entries with the same exact loc. We can change this in the spr_census dataframe directly:
+spr_census <- within(spr_census, reflo[census_id == '9875'] <- 'A5.')
+#and we change the value for greflo in the entry as well
+spr_census <- within(spr_census, greflo[census_id == '9875'] <- 'KL A5.')
+
+nrow(spr_census)
+#7414
+
+
+```
+
+
+
+#Begin creating list
+```{r}
+#Group and identify reflo/exact loc combo with most number of entries 
+census_group <- spr_census %>%
+  dplyr::group_by(grid, reflo, greflo, locX, locY, exactloc) %>%
+  dplyr::summarise(entries = n_distinct(date))
+nrow(census_group)
+# census_group has 1385 entries
+
+#Group and identify the number of exactlocs associated with each greflo
+census_group2 <- census_group%>%
+  dplyr::group_by(grid, reflo, greflo) %>%
+  dplyr::summarise(entries = n_distinct(exactloc))
+nrow(census_group2)
+# 765 entries
+
+#How many greflos have only one exact loc?
+nrow(census_group2[census_group2$entries == 1,])
+#=397 greflos have only one exact loc. 
+
+
+```
+
+
+#Fill in missing exact locs
+```{r}
+#Look first to records with no exact locs to see if we can assign an exact loc based on reflo and our findings from above
+census_exactlocempty <- spr_census %>%
+  filter(exactloc == "NA,NA")
+nrow(census_exactlocempty)
+# We have 79 records with no exact loc in spring census. We'll tackle the ones we have reflos for first: 
+census_reflosonly <- census_exactlocempty %>%
+  filter(!is.na(reflo))
+nrow(census_reflosonly)
+# 21 entries. Easier to tackle. Here we go...
+
+#Census recrod dbaMidden.id 23906 at KL F.21. Look up in bigdata1, we see the accepted exact loc is 7.1,21.3 (though several other exact locs have been used as well, as we see in the synonymous exact locs list in bigdata1)
+#We change this in the spr_census dataframe directly:
+spr_census <- within(spr_census, exactloc[dbaMidden.id == '23906'] <- '7.1,21.3')
+#and we change the value for grexactloc in the entry as well
+spr_census <- within(spr_census, grexactloc[dbaMidden.id == '23906'] <- 'KL 7.1,21.3')
+#and locX and locY
+spr_census <- within(spr_census, locX[dbaMidden.id == '23906'] <- 7.1)
+spr_census <- within(spr_census, locY[dbaMidden.id == '23906'] <- 21.3)
+
+#Repeat these for all 21 entries. 
+
+#dbaMidden.id= 41355
+spr_census <- within(spr_census, exactloc[dbaMidden.id == '41355'] <- '-8,12')
+spr_census <- within(spr_census, grexactloc[dbaMidden.id == '41355'] <- 'KL -8,12')
+spr_census <- within(spr_census, locX[dbaMidden.id == '41355'] <- -8)
+spr_census <- within(spr_census, locY[dbaMidden.id == '41355'] <- 12)
+spr_census <- within(spr_census, locXstr[dbaMidden.id == '41355'] <- -8)
+spr_census <- within(spr_census, locYstr[dbaMidden.id == '41355'] <- 12)
+
+#dbaMidden.id= 12978
+spr_census <- within(spr_census, exactloc[dbaMidden.id  == '12978'] <- '4.7,8.5')
+spr_census <- within(spr_census, grexactloc[dbaMidden.id  == '12978'] <- 'KL 4.7,8.5')
+spr_census <- within(spr_census, locX[dbaMidden.id  == '12978'] <- 4.7)
+spr_census <- within(spr_census, locY[dbaMidden.id  == '12978'] <- 8.5)
+spr_census <- within(spr_census, locXstr[dbaMidden.id  == '12978'] <- 4.7)
+spr_census <- within(spr_census, locYstr[dbaMidden.id  == '12978'] <- 8.5)
+
+#dbaMidden.id= 41751
+spr_census <- within(spr_census, exactloc[dbaMidden.id  == '41751'] <- '10.1,6.1')
+spr_census <- within(spr_census, grexactloc[dbaMidden.id  == '41751'] <- 'SU 10.1,6.1')
+spr_census <- within(spr_census, locX[dbaMidden.id  == '41751'] <- 10.1)
+spr_census <- within(spr_census, locY[dbaMidden.id  == '41751'] <- 6.1)
+spr_census <- within(spr_census, locXstr[dbaMidden.id  == '41751'] <- 10.1)
+spr_census <- within(spr_census, locYstr[dbaMidden.id  == '41751'] <- 6.1)
+
+# census_id = 191
+spr_census <- within(spr_census, exactloc[census_id == '191'] <- '12.3,16.8')
+spr_census <- within(spr_census, grexactloc[census_id == '191'] <- 'KL 12.3,16.8')
+spr_census <- within(spr_census, locX[census_id == '191'] <- 12.3)
+spr_census <- within(spr_census, locY[census_id == '191'] <- 16.8)
+spr_census <- within(spr_census, locXstr[census_id == '191'] <- 12.3)
+spr_census <- within(spr_census, locYstr[census_id == '191'] <- 16.8)
+
+# census_id = 527
+spr_census <- within(spr_census, exactloc[census_id == '527'] <- '-5,12')
+spr_census <- within(spr_census, grexactloc[census_id == '527'] <- 'KL -5,12')
+spr_census <- within(spr_census, locX[census_id == '527'] <- -5)
+spr_census <- within(spr_census, locY[census_id == '527'] <- 12)
+spr_census <- within(spr_census, locXstr[census_id == '527'] <- -5)
+spr_census <- within(spr_census, locYstr[census_id == '527'] <- 12)
+
+
+
+# census_id = 2579 ---There is no SU I14 in census aside from this record, but there is a SU I14. Looking up this squirrel ID (12550) we see that the squirrel occupied SU I14. in all other census records. This is therefore the most likely reflo and exact loc, and we change it here: 
+spr_census <- within(spr_census, exactloc[census_id == '2579'] <- '9,14.5')
+spr_census <- within(spr_census, grexactloc[census_id == '2579'] <- 'SU 9,14.5')
+spr_census <- within(spr_census, locX[census_id == '2579'] <- 9)
+spr_census <- within(spr_census, locY[census_id == '2579'] <- 14.5)
+spr_census <- within(spr_census, locXstr[census_id == '2579'] <- 9)
+spr_census <- within(spr_census, locYstr[census_id == '2579'] <- 14.5)
+
+spr_census <- within(spr_census, reflo[census_id == '2579'] <- 'I14.')
+spr_census <- within(spr_census, greflo[census_id == '2579'] <- 'SU I14.')
+
+
+# census_id = 2582
+spr_census <- within(spr_census, exactloc[census_id == '2582'] <- '1.1,7.1')
+spr_census <- within(spr_census, grexactloc[census_id == '2582'] <- 'SU 1.1,7.1')
+spr_census <- within(spr_census, locX[census_id == '2582'] <- 1.1)
+spr_census <- within(spr_census, locY[census_id == '2582'] <- 7.1)
+spr_census <- within(spr_census, locXstr[census_id == '2582'] <- 1.1)
+spr_census <- within(spr_census, locYstr[census_id == '2582'] <- 7.1)
+
+# census_id = 2583
+spr_census <- within(spr_census, exactloc[census_id == '2583'] <- '2.8,18.1')
+spr_census <- within(spr_census, grexactloc[census_id == '2583'] <- 'SU 2.8,18.1')
+spr_census <- within(spr_census, locX[census_id == '2583'] <- 2.8)
+spr_census <- within(spr_census, locY[census_id == '2583'] <- 18.1)
+spr_census <- within(spr_census, locXstr[census_id == '2583'] <- 2.8)
+spr_census <- within(spr_census, locYstr[census_id == '2583'] <- 18.1)
+
+# census_id = 2584
+spr_census <- within(spr_census, exactloc[census_id == '2584'] <- '6.3,16')
+spr_census <- within(spr_census, grexactloc[census_id == '2584'] <- 'SU 6.3,16')
+spr_census <- within(spr_census, locX[census_id == '2584'] <- 6.3)
+spr_census <- within(spr_census, locY[census_id == '2584'] <- 16)
+spr_census <- within(spr_census, locXstr[census_id == '2584'] <- 6.3)
+spr_census <- within(spr_census, locYstr[census_id == '2584'] <- 16)
+
+
+# census_id = 2585
+spr_census <- within(spr_census, exactloc[census_id == '2585'] <- '13.8,3.9')
+spr_census <- within(spr_census, grexactloc[census_id == '2585'] <- 'SU 13.8,3.9')
+spr_census <- within(spr_census, locX[census_id == '2585'] <- 13.8)
+spr_census <- within(spr_census, locY[census_id == '2585'] <- 3.9)
+
+# census_id = 2586
+spr_census <- within(spr_census, exactloc[census_id == '2586'] <- '16.3,5')
+spr_census <- within(spr_census, grexactloc[census_id == '2586'] <- 'SU 16.3,59')
+spr_census <- within(spr_census, locX[census_id == '2586'] <- 16.3)
+spr_census <- within(spr_census, locY[census_id == '2586'] <- 3.5)
+spr_census <- within(spr_census, locXstr[census_id == '2586'] <- 16.3)
+spr_census <- within(spr_census, locYstr[census_id == '2586'] <- 3.5)
+
+# census_id = 2587
+spr_census <- within(spr_census, exactloc[census_id == '2587'] <- '17.8,10.8')
+spr_census <- within(spr_census, grexactloc[census_id == '2587'] <- 'SU 17.8,10.8')
+spr_census <- within(spr_census, locX[census_id == '2587'] <- 17.8)
+spr_census <- within(spr_census, locY[census_id == '2587'] <- 10.8)
+spr_census <- within(spr_census, locXstr[census_id == '2587'] <- 17.8)
+spr_census <- within(spr_census, locYstr[census_id == '2587'] <- 10.8)
+
+
+# census_id = 3790
+spr_census <- within(spr_census, exactloc[census_id == '3790'] <- '5,14.7')
+spr_census <- within(spr_census, grexactloc[census_id == '3790'] <- 'KL 5,14.7')
+spr_census <- within(spr_census, locX[census_id == '3790'] <- 5)
+spr_census <- within(spr_census, locY[census_id == '3790'] <- 14.7)
+spr_census <- within(spr_census, locXstr[census_id == '3790'] <- 5)
+spr_census <- within(spr_census, locYstr[census_id == '3790'] <- 14.7)
+
+# census_id = 4001
+spr_census <- within(spr_census, exactloc[census_id == '4001'] <- '-6.7,9.1')
+spr_census <- within(spr_census, grexactloc[census_id == '4001'] <- 'KL -6.7,9.1')
+spr_census <- within(spr_census, locX[census_id == '4001'] <- -6.7)
+spr_census <- within(spr_census, locY[census_id == '4001'] <- 9.1)
+spr_census <- within(spr_census, locXstr[census_id == '4001'] <- -6.7)
+spr_census <- within(spr_census, locYstr[census_id == '4001'] <- 9.1)
+
+# census_id = 4029 ---- -36. not in any other spring census records, but the same squirrel owned this reflo in the fall and in that record (4907) the exact loc is -3.0 6.5
+spr_census <- within(spr_census, exactloc[census_id == '4029'] <- '-3,6.5')
+spr_census <- within(spr_census, grexactloc[census_id == '4029'] <- 'KL -3,6.5')
+spr_census <- within(spr_census, locX[census_id == '4029'] <- -3)
+spr_census <- within(spr_census, locY[census_id == '4029'] <- 6.5)
+spr_census <- within(spr_census, locXstr[census_id == '4029'] <- -3)
+spr_census <- within(spr_census, locYstr[census_id == '4029'] <- 6.5)
+
+# census_id = 4038
+spr_census <- within(spr_census, exactloc[census_id == '4038'] <- '-3.8,0')
+spr_census <- within(spr_census, grexactloc[census_id == '4038'] <- 'KL -3.8,0')
+spr_census <- within(spr_census, locX[census_id == '4038'] <- -3.8)
+spr_census <- within(spr_census, locY[census_id == '4038'] <- 0)
+spr_census <- within(spr_census, locXstr[census_id == '4038'] <- -3.8)
+spr_census <- within(spr_census, locYstr[census_id == '4038'] <- 0)
+
+# census_id = 4064
+spr_census <- within(spr_census, exactloc[census_id == '4064'] <- '-3,2')
+spr_census <- within(spr_census, grexactloc[census_id == '4064'] <- 'KL -3,2')
+spr_census <- within(spr_census, locX[census_id == '4064'] <- -3)
+spr_census <- within(spr_census, locY[census_id == '4064'] <- 2)
+
+# census_id = 4133
+spr_census <- within(spr_census, exactloc[census_id == '4133'] <- '11.1,17.5')
+spr_census <- within(spr_census, grexactloc[census_id == '4133'] <- 'KL 11.1,17.5')
+spr_census <- within(spr_census, locX[census_id == '4133'] <- 11.1)
+spr_census <- within(spr_census, locY[census_id == '4133'] <- 17.5)
+
+# census_id = 4426
+spr_census <- within(spr_census, exactloc[census_id == '4426'] <- '-8,11')
+spr_census <- within(spr_census, grexactloc[census_id == '4426'] <- 'KL -8,11')
+spr_census <- within(spr_census, locX[census_id == '4426'] <- -8)
+spr_census <- within(spr_census, locY[census_id == '4426'] <- 11)
+
+# census_id = 4427
+spr_census <- within(spr_census, exactloc[census_id == '4427'] <- '-8,11')
+spr_census <- within(spr_census, grexactloc[census_id == '4427'] <- 'KL -8,11')
+spr_census <- within(spr_census, locX[census_id == '4427'] <- -8)
+spr_census <- within(spr_census, locY[census_id == '4427'] <- 11)
+
+# census_id = 4428
+spr_census <- within(spr_census, exactloc[census_id == '4428'] <- '-8,11')
+spr_census <- within(spr_census, grexactloc[census_id == '4428'] <- 'KL -8,11')
+spr_census <- within(spr_census, locX[census_id == '4428'] <- -8)
+spr_census <- within(spr_census, locY[census_id == '4428'] <- 11)
+
+# census_id = 4614
+spr_census <- within(spr_census, exactloc[census_id == '4614'] <- '-8,11')
+spr_census <- within(spr_census, grexactloc[census_id == '4614'] <- 'KL -8,11')
+spr_census <- within(spr_census, locX[census_id == '4614'] <- -8)
+spr_census <- within(spr_census, locY[census_id == '4614'] <- 11)
+
+
+######
+
+#Check the tables
+census_exactlocempty <- spr_census %>%
+  filter(exactloc == "NA,NA")
+nrow(census_exactlocempty)
+# Down to 58 entries
+census_reflosonly <- census_exactlocempty %>%
+  filter(!is.na(reflo))
+nrow(census_reflosonly)
+# Dataframe is empty! Woot!
+
+#Look again at census_exactlocempty - there are no other entries with usable location data. We *COULD* go through by fate to see if owner status remained unchanged, but I think this is good enough, and we may be making assumptions on decisions made in the field without enough evidence. 
+
+#Check for other NAs
+
+census_group_NAs <- spr_census %>%
+  filter(!is.na(squirrel_id))%>%
+  dplyr::filter(grepl("NA",exactloc))
+
+#We change the exactloc, grexactloc, and locx directly in spr_census dataframe with accepted exact loc data we look up in dataframe bigdata1 for that greflo
+#KL -8.11
+spr_census <- within(spr_census, exactloc[dbaMidden.id == '35328'] <- '-8.5,11')
+spr_census <- within(spr_census, grexactloc[dbaMidden.id == '35328'] <- 'KL-8.5,11')
+spr_census <- within(spr_census, locY[dbaMidden.id == '35328'] <- '11')
+spr_census <- within(spr_census, locYstr[dbaMidden.id == '35328'] <- '11')
+
+#SU A.1.
+spr_census <- within(spr_census, exactloc[dbaMidden.id== '26784'] <- '1.6,1.6')
+spr_census <- within(spr_census, grexactloc[dbaMidden.id == '26784'] <- 'SU 1.6,1.6')
+spr_census <- within(spr_census, locX[dbaMidden.id == '26784'] <- '1.6')
+spr_census <- within(spr_census, locXstr[dbaMidden.id == '26784'] <- '1.6')
+
+
+spr_census <- within(spr_census, exactloc[dbaMidden.id== '29683'] <- '1.6,1.6')
+spr_census <- within(spr_census, grexactloc[dbaMidden.id == '29683'] <- 'SU 1.6,1.6')
+spr_census <- within(spr_census, locX[dbaMidden.id == '29683'] <- '1.6')
+spr_census <- within(spr_census, locXstr[dbaMidden.id == '29683'] <- '1.6')
+
+spr_census <- within(spr_census, exactloc[dbaMidden.id == '32950'] <- '1.6,1.6')
+spr_census <- within(spr_census, grexactloc[dbaMidden.id == '32950'] <- 'SU 1.6,1.6')
+spr_census <- within(spr_census, locX[dbaMidden.id == '32950'] <- '1.6')
+spr_census <- within(spr_census, locXstr[dbaMidden.id == '32950'] <- '1.6')
+
+#KL J.20.
+spr_census <- within(spr_census, exactloc[dbaMidden.id== '41275'] <- '10.5,20.5')
+spr_census <- within(spr_census, grexactloc[dbaMidden.id == '41275'] <- 'KL 10.5,20.5')
+spr_census <- within(spr_census, locX[dbaMidden.id == '41275'] <- '10.5')
+spr_census <- within(spr_census, locXstr[dbaMidden.id == '41275'] <- '10.5')
+
+
+#SU S7
+spr_census <- within(spr_census, exactloc[dbaMidden.id == '29625'] <- '19,7')
+spr_census <- within(spr_census, grexactloc[dbaMidden.id == '29625'] <- 'SU 19,7')
+spr_census <- within(spr_census, locX[dbaMidden.id== '29625'] <- '19')
+spr_census <- within(spr_census, locXstr[dbaMidden.id == '29625'] <- '19')
+
+spr_census <- within(spr_census, exactloc[dbaMidden.id  == '29658'] <- '19,7')
+spr_census <- within(spr_census, grexactloc[dbaMidden.id  == '29658'] <- 'SU 19,7')
+spr_census <- within(spr_census, locX[dbaMidden.id  == '29658'] <- '19')
+spr_census <- within(spr_census, locXstr[dbaMidden.id  == '29658'] <- '19')
+
+spr_census <- within(spr_census, exactloc[dbaMidden.id== '32891'] <- '19,7')
+spr_census <- within(spr_census, grexactloc[dbaMidden.id == '32891'] <- 'SU 19,7')
+spr_census <- within(spr_census, locX[dbaMidden.id == '32891'] <- '19')
+spr_census <- within(spr_census, locXstr[dbaMidden.id == '32891'] <- '19')
+
+spr_census <- within(spr_census, exactloc[dbaMidden.id== '26728'] <- '19,7')
+spr_census <- within(spr_census, grexactloc[dbaMidden.id == '26728'] <- 'SU 19,7')
+spr_census <- within(spr_census, locX[dbaMidden.id == '26728'] <- '19')
+spr_census <- within(spr_census, locXstr[dbaMidden.id == '26728'] <- '19')
+
+
+#Check the tables
+census_group_NAs <- spr_census %>%
+  filter(!is.na(squirrel_id))%>%
+  dplyr::filter(grepl("NA",exactloc))
+nrow(census_group_NAs)
+# Can't really fix these, no loc data
+vNA  <- dplyr::pull(census_group_NAs, census_id)
+length(vNA)
+ # vNA has 58 census entries to remove
+
+spr_census <- spr_census%>%
+  filter(!census_id %in% vNA)
+nrow(spr_census)
+##7356
+```
+
+#Fix wonky greflos
+```{r}
+
+#dbaMidden.id = 29018
+spr_census <- within(spr_census, reflo[dbaMidden.id == '29018'] <- '09')
+spr_census <- within(spr_census, greflo[dbaMidden.id == '29018'] <- 'KL 09')
+
+
+# KL -114 and KL -114. have a complicated history in census - it looks like these reflos have been used interchangeably for the same midden over time. If we include only years that a squirrel defended this location as a primary midden, the majority are for KL -114. We change the locs now.
+spr_census <- within(spr_census, greflo[greflo == 'KL -114'] <- 'KL -114.')
+spr_census <- within(spr_census, reflo[greflo == 'KL -114'] <- '-114.')
+
+
+
+#dbaMidden.id = 29164 -613 input as -612
+spr_census <- within(spr_census, reflo[dbaMidden.id == '29164'] <- '-613')
+spr_census <- within(spr_census, greflo[dbaMidden.id == '29164'] <- 'KL -613')
+
+
+#Fix SU NA -> dbaMidden.id 531
+spr_census <- within(spr_census, reflo[dbaMidden.id== '531'] <- 'A7')
+spr_census <- within(spr_census, greflo[dbaMidden.id == '531'] <- 'SU A7')
+
+#Fix SU NA -> Q9 census id 507
+spr_census <- within(spr_census, reflo[census_id == '507'] <- 'Q9')
+spr_census <- within(spr_census, greflo[census_id == '507'] <- 'SU Q9')
+
+#Fix SU NA -> SU U.2.
+spr_census <- within(spr_census, reflo[census_id == '1765'] <- 'U.2.')
+spr_census <- within(spr_census, greflo[census_id == '1765'] <- 'SU U.2.')
+
+#Fix KL NA -> KL -612
+spr_census <- within(spr_census, reflo[census_id == '509'] <- '-49')
+spr_census <- within(spr_census, greflo[census_id == '509'] <- 'KL -49')
+
+#Fix KL NA -> KL -612
+spr_census <- within(spr_census, reflo[census_id == '219'] <- '-612')
+spr_census <- within(spr_census, greflo[census_id == '219'] <- 'KL -612')
+
+
+spr_census <- within(spr_census, exactloc[census_id == '4636'] <- '19,7')
+spr_census <- within(spr_census, grexactloc[census_id == '4636'] <- 'SU 19,7')
+spr_census <- within(spr_census, locX[census_id == '4636'] <- '19')
+spr_census <- within(spr_census, locXstr[census_id == '4636'] <- '19')
+
+
+#KL 0.1 -> KL 0.10
+spr_census1 <- within(spr_census, greflo[exactloc== '0,10'] <- 'KL 0.10')
+spr_census1 <- within(spr_census, reflo[exactloc== '0.1,1'] <- '0.10')
+
+
+# KL 1 -> KL 01
+spr_census <- within(spr_census, greflo[exactloc== '0.1,1'] <- 'KL 01')
+spr_census <- within(spr_census, reflo[exactloc== '0.1,1'] <- '01')
+spr_census <- within(spr_census, greflo[greflo == 'KL 1'] <- 'KL 01')
+
+# KL 1.2 -> KL 01
+spr_census <- within(spr_census, greflo[exactloc== '9.5,1.8'] <- 'KL 102')
+spr_census <- within(spr_census, reflo[exactloc== '0.1,1'] <- '102')
+
+# KL 4 -> KL 04
+spr_census <- within(spr_census, greflo[exactloc== '0,4.7'] <- 'KL 04.')
+spr_census <- within(spr_census, reflo[exactloc== '0,4.7'] <- '04.')
+
+
+# KL 5 -> KL 05.
+spr_census <- within(spr_census, greflo[exactloc== '0.1,5.5'] <- 'KL 05.')
+spr_census <- within(spr_census, reflo[exactloc== '0.1,5.5'] <- '05.')
+
+# KL 7 -> KL 07
+spr_census <- within(spr_census, greflo[exactloc== '0,6.9'] <- 'KL 07')
+spr_census <- within(spr_census, reflo[exactloc== '0,6.9'] <- '07')
+
+# KL -0.1 -> KL -0.10
+spr_census <- within(spr_census, greflo[exactloc== '-0.7,10'] <- 'KL -0.10')
+spr_census <- within(spr_census, reflo[exactloc== '-0.7,10'] <- '-0.10')
+
+# SU -315 -> SU -315.
+spr_census <- within(spr_census, greflo[exactloc== '-3,15.7'] <- 'SU -315.')
+spr_census <- within(spr_census, reflo[exactloc== '-3,15.7'] <- '-315.')
+
+
+# SU 0.1 -> SU 0.10
+spr_census <- within(spr_census, greflo[exactloc== '0.5,10.2'] <- 'SU 0.10')
+spr_census <- within(spr_census, reflo[exactloc== '0.5,10.2'] <- '0.10')
+
+
+# SU -2.2 -> SU -2.20
+spr_census <- within(spr_census, greflo[exactloc== '-2.6,20.3'] <- 'SU -2.20')
+spr_census <- within(spr_census, reflo[exactloc== '-2.6,20.3'] <- '-2.20')
+
+#SU 10 -> SU 010
+spr_census <- within(spr_census, greflo[exactloc== '0.5,9.8'] <- 'SU 010')
+spr_census <- within(spr_census, reflo[exactloc== '0.5,9.8'] <- '010')
+
+
+
+#SU 0,0-> SU U.7
+spr_census <- within(spr_census, greflo[dbaMidden.id == '19857'] <- 'SU U.7')
+spr_census <- within(spr_census, reflo[dbaMidden.id == '19857'] <- 'U.7')
+spr_census <- within(spr_census, grexactloc[dbaMidden.id == '19857'] <- 'SU 21.5,7')
+spr_census <- within(spr_census, exactloc[dbaMidden.id == '19857'] <- '21.5,7')
+spr_census <- within(spr_census, locX[dbaMidden.id == '19857'] <- '21.5')
+spr_census <- within(spr_census, locXstr[dbaMidden.id == '19857'] <- '21.5')
+spr_census <- within(spr_census, locY[dbaMidden.id == '19857'] <- '7')
+spr_census <- within(spr_census, locYstr[dbaMidden.id == '19857'] <- '7')
+
+
+#KL L.3. CAMP -> L.3.
+spr_census <- within(spr_census, greflo[census_id == '1594']<- 'KL L.3.')
+spr_census <- within(spr_census, reflo[census_id == '1594'] <- 'L.3.')
+spr_census <- within(spr_census, grexactloc[census_id == '1594'] <- 'KL 12.5,3.5')
+spr_census <- within(spr_census, exactloc[census_id == '1594'] <- '12.5,3.5')
+spr_census <- within(spr_census, locX[census_id == '1594'] <- '12.5')
+spr_census <- within(spr_census, locXstr[census_id == '1594']<- '12.5')
+spr_census <- within(spr_census, locY[census_id == '1594'] <- '3.5')
+spr_census <- within(spr_census, locYstr[census_id == '1594'] <- '3.5')
+
+spr_census <- within(spr_census, greflo[census_id == '1595']<- 'KL L.3.')
+spr_census <- within(spr_census, reflo[census_id == '1595'] <- 'L.3.')
+spr_census <- within(spr_census, grexactloc[census_id == '1595'] <- 'KL 12.5,3.5')
+spr_census <- within(spr_census, exactloc[census_id == '1595'] <- '12.5,3.5')
+spr_census <- within(spr_census, locX[census_id == '1595'] <- '12.5')
+spr_census <- within(spr_census, locXstr[census_id == '1595']<- '12.5')
+spr_census <- within(spr_census, locY[census_id == '1595'] <- '3.5')
+spr_census <- within(spr_census, locYstr[census_id == '1595'] <- '3.5')
+
+
+
+
+#SU 03 -> SU 0.3 (same squirrel was at that loc for 3 other census records; locs were accidentally made negative here as well)
+spr_census <- within(spr_census, greflo[census_id =='3796'] <- 'SU 0.3')
+spr_census <- within(spr_census, reflo[census_id =='3796'] <- '0.3')
+spr_census <- within(spr_census, grexactloc[census_id =='3796'] <- 'SU 0.5,3')
+spr_census <- within(spr_census, exactloc[census_id =='3796'] <- '0.5,3')
+spr_census <- within(spr_census, locX[census_id =='3796'] <- '0.5')
+spr_census <- within(spr_census, locXstr[census_id =='3796'] <- '0.5')
+spr_census <- within(spr_census, locY[census_id =='3796'] <- '5')
+spr_census <- within(spr_census, locYstr[census_id =='3796'] <- '5')
+
+
+#census id = 41355 missing loc X Y 
+spr_census <- within(spr_census, locX[dbaMidden.id == '41355'] <- '-8')
+spr_census <- within(spr_census, locXstr[dbaMidden.id == '41355'] <- '-8')
+spr_census <- within(spr_census, locY[dbaMidden.id == '41355'] <- '12')
+spr_census <- within(spr_census, locYstr[dbaMidden.id == '41355'] <- '12')
+
+```
+
+#Fix wonky exact locs
+```{r}
+
+#census_id =1525
+spr_census <- within(spr_census, exactloc[census_id == '1525'] <- '15,5')
+spr_census <- within(spr_census, locX[census_id == '1525'] <- '15')
+spr_census <- within(spr_census, locXstr[census_id == '1525'] <- '15')
+spr_census <- within(spr_census, locY[census_id == '1525'] <- '5')
+spr_census <- within(spr_census, locYstr[census_id == '1525'] <- '5')
+spr_census <- within(spr_census, grexactloc[census_id == '1525'] <- 'KL 15,5')
+
+
+#KL J2 and KL K1. frequently have the same exact loc but will have different squirrels censused at each reflo within the same census. All K1. reflos have J.8 1.6 as the exact loc, which logically makes the most sense. J2 initially had an exact loc of 10.0 2.0 when first entered in 2013, then was listed as J.0 2.1 for two more censuses, after which it was input as J.8 1.6, so for purposes here we assume J.8 1.6 was input wrong and carried forward. We fix them here. 
+#KL J2 fix
+spr_census <- within(spr_census, exactloc[greflo== 'KL J2'] <- '10,2.1')
+spr_census <- within(spr_census, locX[greflo== 'KL J2'] <- '10')
+spr_census <- within(spr_census, locXstr[greflo== 'KL J2'] <- '10')
+spr_census <- within(spr_census, locY[greflo== 'KL J2'] <- '2.1')
+spr_census <- within(spr_census, locYstr[greflo== 'KL J2'] <- '2.1')
+spr_census <- within(spr_census, grexactloc[greflo==  'KL J2'] <- 'KL 10,2.1')
+
+#KL K1. fix
+spr_census <- within(spr_census, exactloc[greflo== 'KL K1.'] <- '10.8,1.6')
+spr_census <- within(spr_census, locX[greflo== 'KL K1.'] <- '10.8')
+spr_census <- within(spr_census, locXstr[greflo== 'KL K1.'] <- '10.8')
+spr_census <- within(spr_census, locY[greflo== 'KL K1.'] <- '1.6')
+spr_census <- within(spr_census, locYstr[greflo== 'KL K1.'] <- '1.6')
+spr_census <- within(spr_census, grexactloc[greflo=='KL K1.'] <- 'KL 10.8,1.6')
+
+
+#SU -118.
+spr_census <- within(spr_census, exactloc[greflo== 'SU -118.'] <- '-0.3,18.6')
+spr_census <- within(spr_census, locX[greflo== 'SU -118.'] <- '-0.3')
+spr_census <- within(spr_census, locXstr[greflo== 'SU -118.'] <- '-0.3')
+spr_census <- within(spr_census, locY[greflo== 'SU -118.'] <- '18.6')
+spr_census <- within(spr_census, locYstr[greflo== 'SU -118.'] <- '18.6')
+spr_census <- within(spr_census, grexactloc[greflo== 'SU -118.'] <- 'SU -0.3,18.6')
+
+#SU B.0. 
+spr_census <- within(spr_census, exactloc[greflo== 'SU B.0.'] <- '2.6,0.5')
+spr_census <- within(spr_census, locX[greflo== 'SU B.0.'] <- '2.6')
+spr_census <- within(spr_census, locXstr[greflo== 'SU B.0.'] <- '2.6')
+spr_census <- within(spr_census, locY[greflo== 'SU B.0.'] <- '0.5')
+spr_census <- within(spr_census, locYstr[greflo== 'SU B.0.'] <- '0.5')
+spr_census <- within(spr_census, grexactloc[greflo== 'SU B.0.'] <- 'SU 2.6,0.5')
+
+#SU F2
+spr_census <- within(spr_census, exactloc[greflo== 'SU F2'] <- '6,1.8')
+spr_census <- within(spr_census, locX[greflo== 'SU F2'] <- '6')
+spr_census <- within(spr_census, locXstr[greflo== 'SU F2'] <- '6')
+spr_census <- within(spr_census, locY[greflo== 'SU F2'] <- '1.8')
+spr_census <- within(spr_census, locYstr[greflo== 'SU F2'] <- '1.8')
+spr_census <- within(spr_census, grexactloc[greflo== 'SU F2'] <- 'SU 6,1.8')
+
+#SU 0,0-> SU -2.7.
+spr_census <- within(spr_census, reflo[greflo== 'SU -2.7.'] <- 'U.7')
+spr_census <- within(spr_census, grexactloc[greflo== 'SU -2.7.'] <- 'SU 21.5,7')
+spr_census <- within(spr_census, exactloc[greflo== 'SU -2.7.'] <- '21.5,7')
+spr_census <- within(spr_census, locX[greflo== 'SU -2.7.'] <- '21.5')
+spr_census <- within(spr_census, locXstr[greflo== 'SU -2.7.'] <- '21.5')
+spr_census <- within(spr_census, locY[greflo== 'SU -2.7.'] <- '7')
+spr_census <- within(spr_census, locYstr[greflo== 'SU -2.7.'] <- '7')
+spr_census <- within(spr_census, greflo[greflo== 'SU -2.7.'] <- 'SU U.7')
+
+nrow(spr_census)
+
+spr_census_master <- spr_census
+```
+
+#Begin creating list
+```{r}
+
+#Group and identify reflo/exact loc combo with most number of entries 
+census_group <- spr_census %>%
+  group_by(grid, reflo, greflo, locX, locY, exactloc) %>%
+  summarise(entries = n_distinct(date))
+nrow(census_group)
+# census_group has 1347 entries 1133
+
+#Group and identify the number of exactlocs associated with each greflo
+census_group2 <- census_group%>%
+  group_by(grid, reflo, greflo) %>%
+  summarise(entries = n_distinct(exactloc))
+nrow(census_group2)
+# 759 entries 673
+
+#How many greflos have only one exact loc?
+nrow(census_group2[census_group2$entries == 1,])
+#404
+
+
+#Filter on middens that were not defended
+
+  #Midden Fates: 
+#0 = no change in ownership
+#1 = change in ownership
+#2 = not censused
+#3 = more than 1 owner
+#4 = no owner - based on rattle (not on a territory)
+#5 = new midden within normal census area
+#6 = midden censused for the first time
+#7 = change in ownership due to unnatural death
+#8 = insufficient information to determine ownership (new in May 1995)
+#9 = no longer a midden
+#10 = midden destroyed by road clearing in 2000
+
+#DEF  strength of defence
+#1 = squirrels found occasionally at midden, few to no calls
+#2 = squirrels found occasionally at midden, sometimes calling
+#3 = squirrel found at midden, often defends it, but is the animal's secondary midden 
+#4 = squirrel's primary midden
+#5 = squirrel trapped 3-4 times, never calls (new in May 1995)
+
+
+#Fate
+#12 = no known home and not present in last census
+
+census_group <- spr_census%>%
+# filter(!fate %in% c( 2, 4, 8, 9, 10, 12)) %>%
+# filter(!def %in% c(1, 2))%>%
+  filter(!grexactloc %in% c("SU NA,NA", "KL NA,NA"))%>%
+  group_by(grid, reflo, greflo, locX, locY, exactloc, grexactloc) %>%
+  summarise(entries = n_distinct(date))
+nrow(census_group)
+
+# census_group has 1053 entries 1134
+
+
+#Group and identify the number of exactlocs associated with each greflo
+census_group2 <- census_group%>%
+  group_by(grid, reflo, greflo) %>%
+  summarise(entries = n_distinct(exactloc))
+nrow(census_group2)
+#census_group2 has 638 entries 673
+
+#How many greflos have only one exact loc?
+nrow(census_group2[census_group2$entries == 1,])
+#=372 greflos have only one exact loc. 382
+```
+#Moving on to greflos with more than one exact loc each
+```{r}
+census_group3 <- census_group%>%
+  group_by(grid, reflo, greflo) %>%
+  summarise(entries = n_distinct(exactloc))
+nrow(census_group3)
+# 717 entries
+
+
+
+# Over seven hundred reflos is too much to examine individually. We will instead create a loop that will go through each of the remaining greflos in census_group and select the exact loc for each greflo that has the highest number of entries associated with it. 
+
+#First, create the vector of greflos
+vector2 <- dplyr::pull(census_group3, greflo)
+length(vector2)
+ # vector2 should have length 717 entries, and it does
+
+datalist = list()
+#####
+
+#####
+
+for (i in 1:length(vector2)) {
+  print(i)
+  
+  data_1 <- subset(census_group, greflo == vector2[i]) #subset census_group for all entries associated with greflo i
+  data_1 <- as.data.frame(data_1)
+   synonymous.grexactlocs <- dplyr::pull(data_1, grexactloc) #create vector of all the exactlocs associated with greflo i
+   synonymous.grexactlocs.df <- as.data.frame(synonymous.grexactlocs)
+   
+   synonymous.grexactlocs.df$greflo <- vector2[i]
+   
+     acc <- data_1 %>% 
+            arrange(desc(entries))%>% #sort dataframe by descending order of number of entries
+            slice(1)%>%
+            collect%>%
+            dplyr::select(grid, reflo, greflo, locX, locY, exactloc, grexactloc)
+   
+   accepted <- left_join(synonymous.grexactlocs.df, acc, by = "greflo")
+   accepted$accepted.grexactloc <- accepted$grexactloc
+   
+  
+    datalist[[i]] <- accepted 
+}
+bigdata1 <- dplyr::bind_rows(datalist)
+#Note; exactloc in bigdata1 represents the ACCEPTED EXACT LOC for the greflo 
+
+```
+
+########
+#Moving on to exactlocs with more than 1 greflo each
+```{r}
+
+#We generate a new census_group dataframe to start from scratch going from exact loc to greflo direction 
+#Group and identify reflo/exact loc combo with most number of entries 
+census_groupB <- spr_census %>%
+ #  filter(!fate %in% c( 2, 4, 8, 9, 10, 12)) %>%
+#filter(!def %in% c(1, 2))%>%
+  group_by(grid, exactloc, grexactloc, locX, locY, greflo) %>%
+  summarise(entries = n_distinct(date))
+nrow(census_groupB)
+
+# census_groupB has 1238 entries
+
+
+census_group4 <- census_groupB%>%
+  group_by(grid, grexactloc) %>%
+  summarise(entries = n_distinct(greflo))
+nrow(census_group4)
+# 1172 entries
+
+# Most of these exact locs are associated with only 1 greflo, so we can remove these from the list:
+
+#How many greflos have only one exact loc?
+nrow(census_group4[census_group4$entries == 1,])
+# = 1110 exactlocs have only one greflo. 
+
+census_group5 <- census_groupB%>%
+  group_by(grid, exactloc, grexactloc) %>%
+  summarise(entries = n_distinct(greflo))
+nrow(census_group5)
+# 1172 entries
+
+#Create the vector of exactlocs
+vector4 <- dplyr::pull(census_group5, grexactloc)
+ length(vector4) # vector2 should have length 191 entries
+
+
+datalist2 = list()
+
+
+for (j in 1:length(vector4)) {
+  print(j)
+  
+   data_2 <- subset(census_groupB, grexactloc == vector4[j]) #subset census_group for all entries associated with exactloc j
+  data_2 <- as.data.frame(data_2)
+   synonymous.greflos <- dplyr::pull(data_2, greflo) #create vector of all the exactlocs associated with exactloc j
+  synonymous.greflos.df <- as.data.frame(synonymous.greflos)
+   
+   synonymous.greflos.df$grexactloc<- vector4[j]
+   
+     acc2 <- data_2 %>% 
+            arrange(desc(entries))%>% #sort dataframe by descending order of number of entries
+            slice(1)%>%
+            collect%>%
+            dplyr::select(grid, exactloc, grexactloc, locX, locY, greflo, entries)
+
+   
+   accepted2 <- left_join(synonymous.greflos.df, acc2, by = "grexactloc")
+      accepted2$accepted.greflo <- accepted2$greflo
+  
+    datalist2[[j]] <- accepted2 
+}
+bigdata2 <- dplyr::bind_rows(datalist2)
+n_distinct(bigdata2$grexactloc)
+#has 1172 entries
+```
+
+
+```{r}
+#See which exact locs have multiple greflos
+bigdata1.2 <- bigdata1 %>%
+#  filter(!grexactloc %in% grexactloclist)%>%
+  filter(!exactloc == "NA,NA")
+n_distinct(bigdata1.2$greflo)
+#714
+
+bigdata2.2 <- bigdata2 %>%
+#  filter(!grexactloc %in% grexactloclist)%>%
+  filter(!exactloc == "NA,NA")
+n_distinct(bigdata2.2$greflo)
+#687
+
+middenmaster1 <- full_join(bigdata1.2, bigdata2.2, by = c("grexactloc", "grid", "exactloc", "locX", "locY", "greflo"))
+
+nrow(middenmaster1)
+#1832
+
+middenmaster <- middenmaster1 %>%
+  filter(!is.na(accepted.greflo))
+nrow(middenmaster)
+#1790
+
+KL <- middenmaster %>%
+  filter(grid == "KL")%>%
+  mutate(locX = as.numeric(locX), locY = as.numeric(locY))
+nrow(KL)
+#916
+
+SU <- middenmaster %>%
+  filter(grid == "SU")%>%
+  mutate(locX = as.numeric(locX), locY = as.numeric(locY))
+nrow(SU)
+874
+
+KLplot <- ggplot(KL, aes(x=locX, y=locY)) + geom_point(size=2) + coord_fixed(ratio = 1) +  scale_x_continuous(minor_breaks = seq(-10, 18, 1), breaks = seq(-10, 18, 1)) + scale_y_continuous(minor_breaks = seq(-1, 22, 1), breaks = seq(-1, 22, 1)) +  labs(title="All KL Middens")  
+
+KLplot
+
+
+SUplot <- ggplot(SU, aes(x=locX, y=locY)) + geom_point(size=2) + coord_fixed(ratio = 1) +  scale_x_continuous(minor_breaks = seq(-10, 24, 1), breaks = seq(-10, 24, 1)) + scale_y_continuous(minor_breaks = seq(-1, 23, 1), breaks = seq(-1, 23, 1)) + labs(title="All SU Middens")
+
+
+SUplot
+
+
+
+
+write.csv(middenmaster1, "MiddenMasterFinal.csv")
+nrow(middenmaster1)
+
+```
+
+#Using the Midden Master
+```{r}
+#Testing the matching capabilities
+sample.census <- spr_census %>% 
+  filter(!fate %in% c( 2, 4, 8, 9, 10, 12)) %>%
+  filter(!def %in% c(1, 2))%>%
+  collect%>%
+  filter(census_id %in% sample(unique(census_id),50))
+
+
+sample.census$match.index <- match(sample.census$greflo, middenmaster$synonymous.greflos) #adds index locations of matches to match.index
+sample.census$match.greflo1<- middenmaster$accepted.greflo[sample.census$match.index] #finds greflo information based on indices, adds to accepted greflo
+sample.census$match.grexactloc1<- middenmaster$accepted.grexactloc[sample.census$match.index] #finds gresactloc information based on indices, adds to accepted greflo
+
+
+sample.census$match.index2 <- match(sample.census$grexactloc, middenmaster$synonymous.grexactlocs) #adds index locations of matches to match.index
+
+sample.census$match.greflo2<- middenmaster$accepted.greflo[sample.census$match.index2] #finds greflo  information based on indices, adds to accepted greflo
+sample.census$match.grexactloc2<- middenmaster$accepted.grexactloc[sample.census$match.index] #finds grexactloc information based on indices, adds to accepted greflo
+
+
+```
